@@ -121,10 +121,7 @@ class session(Thread):
         try:
             self.httpPort = o.port
         except:
-            if o.scheme == "https":
-                self.httpPort = 443
-            else:
-                self.httpPort = 80
+            self.httpPort = 443 if o.scheme == "https" else 80
         self.httpScheme = o.scheme
         self.httpHost = o.netloc.split(":")[0]
         self.httpPath = o.path
@@ -158,9 +155,11 @@ class session(Thread):
         elif atyp == "\x04":  # IPv6
             target = sock.recv(16)
             targetPort = sock.recv(2)
-            tmp_addr = []
-            for i in xrange(len(target) / 2):
-                tmp_addr.append(unichr(ord(target[2 * i]) * 256 + ord(target[2 * i + 1])))
+            tmp_addr = [
+                unichr(ord(target[2 * i]) * 256 + ord(target[2 * i + 1]))
+                for i in xrange(len(target) / 2)
+            ]
+
             target = ":".join(tmp_addr)
         targetPort = ord(targetPort[0]) * 256 + ord(targetPort[1])
         if cmd == "\x02":  # BIND
@@ -187,27 +186,26 @@ class session(Thread):
     def parseSocks4(self, sock):
         log.debug("SocksVersion4 detected")
         cmd = sock.recv(1)
-        if cmd == "\x01":  # Connect
-            targetPort = sock.recv(2)
-            targetPort = ord(targetPort[0]) * 256 + ord(targetPort[1])
-            target = sock.recv(4)
-            sock.recv(1)
-            target = ".".join([str(ord(i)) for i in target])
-            serverIp = target
-            try:
-                serverIp = gethostbyname(target)
-            except:
-                log.error("oeps")
-            serverIp = "".join([chr(int(i)) for i in serverIp.split(".")])
-            self.cookie = self.setupRemoteSession(target, targetPort)
-            if self.cookie:
-                sock.sendall(chr(0) + chr(90) + serverIp + chr(targetPort / 256) + chr(targetPort % 256))
-                return True
-            else:
-                sock.sendall("\x00" + "\x91" + serverIp + chr(targetPort / 256) + chr(targetPort % 256))
-                raise RemoteConnectionFailed("Remote connection failed")
-        else:
+        if cmd != "\x01":
             raise SocksProtocolNotImplemented("Socks4 - Command [%d] Not implemented" % ord(cmd))
+        targetPort = sock.recv(2)
+        targetPort = ord(targetPort[0]) * 256 + ord(targetPort[1])
+        target = sock.recv(4)
+        sock.recv(1)
+        target = ".".join([str(ord(i)) for i in target])
+        serverIp = target
+        try:
+            serverIp = gethostbyname(target)
+        except:
+            log.error("oeps")
+        serverIp = "".join([chr(int(i)) for i in serverIp.split(".")])
+        self.cookie = self.setupRemoteSession(target, targetPort)
+        if self.cookie:
+            sock.sendall(chr(0) + chr(90) + serverIp + chr(targetPort / 256) + chr(targetPort % 256))
+            return True
+        else:
+            sock.sendall("\x00" + "\x91" + serverIp + chr(targetPort / 256) + chr(targetPort % 256))
+            raise RemoteConnectionFailed("Remote connection failed")
 
     def handleSocks(self, sock):
         # This is where we setup the socks connection
@@ -230,9 +228,8 @@ class session(Thread):
             if status == "OK":
                 cookie = response.getheader("set-cookie")
                 log.info("[%s:%d] HTTP [200]: cookie [%s]" % (self.target, self.port, cookie))
-            else:
-                if response.getheader("X-ERROR") is not None:
-                    log.error(response.getheader("X-ERROR"))
+            elif response.getheader("X-ERROR") is not None:
+                log.error(response.getheader("X-ERROR"))
         else:
             log.error("[%s:%d] HTTP [%d]: [%s]" % (self.target, self.port, response.status, response.getheader("X-ERROR")))
             log.error("[%s:%d] RemoteError: %s" % (self.target, self.port, response.data))
@@ -243,7 +240,10 @@ class session(Thread):
         headers = {"X-CMD": "DISCONNECT", "Cookie": self.cookie}
         params = ""
         conn = self.httpScheme(host=self.httpHost, port=self.httpPort)
-        response = conn.request("POST", self.httpPath + "?cmd=disconnect", params, headers)
+        response = conn.request(
+            "POST", f"{self.httpPath}?cmd=disconnect", params, headers
+        )
+
         if response.status == 200:
             log.info("[%s:%d] Connection Terminated" % (self.target, self.port))
         conn.close()
@@ -358,10 +358,7 @@ def askGeorg(connectString):
     try:
         httpPort = o.port
     except:
-        if o.scheme == "https":
-            httpPort = 443
-        else:
-            httpPort = 80
+        httpPort = 443 if o.scheme == "https" else 80
     httpScheme = o.scheme
     httpHost = o.netloc.split(":")[0]
     httpPath = o.path
@@ -372,10 +369,9 @@ def askGeorg(connectString):
 
     conn = httpScheme(host=httpHost, port=httpPort)
     response = conn.request("GET", httpPath)
-    if response.status == 200:
-        if BASICCHECKSTRING == response.data.strip():
-            log.info(BASICCHECKSTRING)
-            return True
+    if response.status == 200 and BASICCHECKSTRING == response.data.strip():
+        log.info(BASICCHECKSTRING)
+        return True
     conn.close()
     return False
 
